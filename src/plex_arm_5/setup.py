@@ -31,7 +31,6 @@ setup(
     entry_points={
         'console_scripts': [
             'joy_to_servo = plex_arm_5.joy_to_servo:main',
-            'arm_teleop = plex_arm_5.arm_teleop:main',
         ],
     },
 )
