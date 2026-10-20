@@ -9,9 +9,14 @@ class JoyToServo(Node):
     def __init__(self):
         super().__init__('joy_to_servo')
         self.deadzone = 0.1
+        self.linear_x = 0.0
+        self.linear_y = 0.0
+        self.linear_z = 0.0
+        self.last_joy_time = None
         self.create_subscription(Joy, '/joy', self.joy_callback, 10)
         self.publisher = self.create_publisher(
             TwistStamped, '/servo_node/delta_twist_cmds', 10)
+        self.create_timer(0.05, self.publish_command)
 
     def axis(self, msg, index):
         if index >= len(msg.axes):
@@ -22,13 +27,27 @@ class JoyToServo(Node):
         return max(-1.0, min(1.0, value))
 
     def joy_callback(self, msg):
+        self.linear_x = self.axis(msg, 1)
+        self.linear_y = -self.axis(msg, 0)
+        z_index = 4 if len(msg.axes) > 4 else 3
+        self.linear_z = self.axis(msg, z_index)
+        self.last_joy_time = self.get_clock().now()
+
+    def publish_command(self):
+        if self.last_joy_time is None:
+            return
+        age = (self.get_clock().now() - self.last_joy_time).nanoseconds * 1e-9
         command = TwistStamped()
         command.header.stamp = self.get_clock().now().to_msg()
         command.header.frame_id = 'base_link'
-        command.twist.linear.x = self.axis(msg, 1)
-        command.twist.linear.y = -self.axis(msg, 0)
-        z_index = 4 if len(msg.axes) > 4 else 3
-        command.twist.linear.z = self.axis(msg, z_index)
+        if age > 0.15:
+            command.twist.linear.x = 0.0
+            command.twist.linear.y = 0.0
+            command.twist.linear.z = 0.0
+        else:
+            command.twist.linear.x = self.linear_x
+            command.twist.linear.y = self.linear_y
+            command.twist.linear.z = self.linear_z
         self.publisher.publish(command)
 
 
