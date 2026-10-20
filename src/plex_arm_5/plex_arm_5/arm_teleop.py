@@ -22,14 +22,14 @@ class ArmTeleop(Node):
     def __init__(self):
         super().__init__('arm_teleop')
         self.declare_parameter('speed', 0.6)
-        self.deadzone = 0.2
+        self.deadzone = 0.35
         self.axes = []
         self.buttons = []
         self.centers = [0.0, 0.0, 0.0, 0.0]
         self.last_joy = None
         self.measured = None
-        self.goal = None
         self.moving = False
+        self.hold_ticks = 0
         self.create_subscription(Joy, '/joy', self.on_joy, 10)
         self.create_subscription(
             JointState, '/joint_states', self.on_joints, qos_profile_sensor_data)
@@ -59,7 +59,7 @@ class ArmTeleop(Node):
         center = self.centers[index]
         delta = raw - center
         if abs(delta) < self.deadzone:
-            self.centers[index] = center + 0.2 * (raw - center)
+            self.centers[index] = raw
             return 0.0
         return max(-1.0, min(1.0, delta))
 
@@ -71,7 +71,6 @@ class ArmTeleop(Node):
     def rates(self):
         speed = float(self.get_parameter('speed').value)
         joint_rates = [0.0] * len(JOINTS)
-        # joy_linux publishes stick-right and stick-up as negative.
         joint_rates[0] = -self.corrected(LEFT_X) * speed
         joint_rates[1] = self.corrected(LEFT_Y) * speed
         joint_rates[2] = -self.corrected(RIGHT_X) * speed
@@ -86,22 +85,27 @@ class ArmTeleop(Node):
             joint_rates[5] += speed
         return joint_rates
 
-    def publish_positions(self, positions, joint_rates):
+    def publish_positions(self, positions):
         message = JointTrajectory()
         message.header.stamp = self.get_clock().now().to_msg()
         message.joint_names = list(JOINTS)
         point = JointTrajectoryPoint()
         point.positions = [float(value) for value in positions]
-        point.velocities = [float(value) for value in joint_rates]
-        point.time_from_start.nanosec = 200000000
+        point.velocities = [0.0] * len(JOINTS)
+        point.time_from_start.nanosec = 100000000
         message.points = [point]
         self.publisher.publish(message)
 
     def hold(self):
-        if self.moving and self.goal is not None:
-            self.publish_positions(self.goal, [0.0] * len(JOINTS))
+        if self.measured is None:
+            return
+        if self.moving:
+            self.hold_ticks = 6
+        if self.hold_ticks <= 0:
+            return
+        self.publish_positions(self.measured)
         self.moving = False
-        self.goal = None
+        self.hold_ticks -= 1
 
     def tick(self):
         if self.measured is None:
@@ -120,12 +124,13 @@ class ArmTeleop(Node):
         if all(abs(rate) < 1e-4 for rate in joint_rates):
             self.hold()
             return
-        if self.goal is None:
-            self.goal = list(self.measured)
-        for index, rate in enumerate(joint_rates):
-            self.goal[index] += rate * 0.05
-        self.publish_positions(self.goal, joint_rates)
+        target = [
+            self.measured[index] + rate * 0.1
+            for index, rate in enumerate(joint_rates)
+        ]
+        self.publish_positions(target)
         self.moving = True
+        self.hold_ticks = 6
 
 
 def main(args=None):
