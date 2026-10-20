@@ -82,6 +82,8 @@ def generate_launch_description():
         respawn_delay=1.0,
         parameters=[{
             'dev': LaunchConfiguration('dev'),
+            'dev_name': 'Nintendo Switch Pro Controller',
+            'dev_ff': '',
             'deadzone': 0.05,
             'autorepeat_rate': 20.0,
         }],
