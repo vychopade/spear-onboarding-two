@@ -1,9 +1,8 @@
 import os
 
-import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -16,11 +15,6 @@ def generate_launch_description():
 
     rviz_config = os.path.join(package_share, 'config', 'moveit.rviz')
     ros2_controllers_path = os.path.join(package_share, 'config', 'ros2_controllers.yaml')
-    servo_params_path = os.path.join(package_share, 'config', 'servo_params.yaml')
-
-    with open(servo_params_path, 'r') as servo_file:
-        servo_yaml = yaml.safe_load(servo_file)
-    servo_params = servo_yaml['servo_node']['ros__parameters']
 
     moveit_config = MoveItConfigsBuilder(
         'plex_arm_5', package_name='plex_arm_5').to_moveit_configs()
@@ -66,19 +60,6 @@ def generate_launch_description():
         )
     )
 
-    servo_node = Node(
-        package='moveit_servo',
-        executable='servo_node_main',
-        name='servo_node',
-        output='screen',
-        parameters=[
-            servo_params,
-            moveit_config.robot_description,
-            moveit_config.robot_description_semantic,
-            moveit_config.robot_description_kinematics,
-        ],
-    )
-
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',
@@ -92,47 +73,39 @@ def generate_launch_description():
         ],
     )
 
-    joy_node = Node(
-        package='joy',
-        executable='joy_node',
-        name='joy_node',
+    joy_linux = Node(
+        package='joy_linux',
+        executable='joy_linux_node',
+        name='joy_linux_node',
+        output='screen',
+        respawn=True,
+        respawn_delay=1.0,
         parameters=[{
-            'device_id': ParameterValue(LaunchConfiguration('device_id'), value_type=int),
+            'dev': LaunchConfiguration('dev'),
             'deadzone': 0.05,
             'autorepeat_rate': 20.0,
         }],
     )
 
-    joy_to_servo = Node(
+    arm_teleop = Node(
         package='plex_arm_5',
-        executable='joy_to_servo',
-        name='joy_to_servo',
+        executable='arm_teleop',
+        name='arm_teleop',
         output='screen',
-    )
-
-    start_servo = TimerAction(
-        period=8.0,
-        actions=[
-            ExecuteProcess(
-                cmd=[
-                    'ros2', 'service', 'call', '/servo_node/start_servo',
-                    'std_srvs/srv/Trigger', '{}',
-                ],
-                output='screen',
-            )
-        ],
+        parameters=[{
+            'speed': ParameterValue(LaunchConfiguration('speed'), value_type=float),
+        }],
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument('device_id', default_value='0'),
+        DeclareLaunchArgument('dev', default_value='/dev/input/js0'),
+        DeclareLaunchArgument('speed', default_value='0.6'),
         robot_state_publisher,
         ros2_control_node,
         joint_state_broadcaster_spawner,
         arm_controller_spawner,
         move_group,
-        servo_node,
         rviz_node,
-        joy_node,
-        joy_to_servo,
-        start_servo,
+        joy_linux,
+        arm_teleop,
     ])
